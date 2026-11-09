@@ -1,0 +1,114 @@
+<!DOCTYPE html><html lang="hi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Mandi Hisab</title>
+<style>
+:root{--g:#167d55;--ink:#182230;--mu:#687588;--ln:#e7ecf2;--r:#c43e4d}
+*{box-sizing:border-box}body{margin:0;background:#f4f7fb;font:15px system-ui,Roboto,sans-serif;color:var(--ink)}
+header{background:#fff;border-bottom:1px solid var(--ln);padding:max(14px,env(safe-area-inset-top)) 16px 12px;font-size:20px;font-weight:800}header span{color:var(--g)}
+.w{max-width:640px;margin:0 auto;padding:14px}.st{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.c{background:#fff;border:1px solid var(--ln);border-radius:14px;padding:14px;margin-bottom:12px}.m{font-size:22px;font-weight:800;margin-top:4px}.mu{color:var(--mu);font-size:12px}
+button{border:0;border-radius:10px;padding:11px 14px;background:var(--g);color:#fff;font:inherit;font-weight:650}.sec{background:#edf2f7;color:#253247}
+input,select{width:100%;border:1px solid #dce3eb;border-radius:9px;padding:10px;font:inherit;background:#fff}
+label{display:block;font-size:12px;color:var(--mu);margin-bottom:8px}
+.mic{display:block;width:84px;height:84px;border-radius:50%;margin:4px auto 12px;font-size:34px;padding:0}
+.row{display:flex;gap:8px}.row>*{flex:1}.tabs{display:flex;gap:8px;margin-bottom:10px}.tabs button{background:#e9eef4;color:#526074}.tabs button.on{background:var(--g);color:#fff}
+.it{display:flex;justify-content:space-between;gap:8px;padding:11px 0;border-bottom:1px solid var(--ln)}.it:last-child{border:0}.red{color:var(--r);font-weight:750}.grn{color:var(--g);font-weight:750}
+.ans{background:#e5f5ed;border-color:#b9e3cf;font-weight:650}.x{background:none;color:var(--r);padding:0 6px}.hint{font-size:12px;color:var(--mu);line-height:1.5}
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#1c2a38;color:#fff;padding:10px 15px;border-radius:12px;display:none}
+</style></head><body>
+<header>Mandi <span>Hisab</span></header>
+<main class="w">
+<div class="st"><div class="c" style="margin:0"><div class="mu">Aaj ki bikri</div><div class="m grn" id="sToday">₹0</div></div><div class="c" style="margin:0"><div class="mu">Kul baaki (udhaar)</div><div class="m red" id="sBaaki">₹0</div></div></div>
+<div class="c"><button class="mic" id="mic">🎤</button>
+<input id="say" placeholder="Bolo ya yahan likho..." autocomplete="off"><div class="row" style="margin-top:8px"><button id="go">Samjho</button></div>
+<div class="hint" style="margin-top:8px">Bolo: "Ramesh ko 50 kilo aam 40 rupaye udhaar" · "Ramesh ne 500 rupaye wapas diye" · "Ramesh ka kitna baaki" · "aaj ki bikri"</div></div>
+<div class="c ans" id="ans" hidden></div>
+<div class="c" id="card" hidden></div>
+<div class="tabs"><button class="on" data-t="k">Khata</button><button data-t="a">Aaj</button></div>
+<div class="c" id="list"></div>
+</main><datalist id="plist"></datalist><div id="toast"></div>
+<script>
+const KEY='mandiHisab.v1';let E=JSON.parse(localStorage.getItem(KEY)||'[]'),pending=null,openP=null,tab='k';
+const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>'₹'+new Intl.NumberFormat('en-IN',{maximumFractionDigits:2}).format(n||0);
+const isNative=()=>!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
+const iso=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+function toast(t){$('toast').textContent=t;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',2500)}
+function say(t){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='hi-IN';speechSynthesis.speak(u)}catch(e){}}
+const parties=()=>[...new Set(E.map(e=>e.party))];
+const bal=p=>E.filter(e=>e.party===p).reduce((s,e)=>s+(e.type==='vasooli'?-e.amount:e.mode==='udhaar'?e.amount:0),0);
+/* ---------- parser ---------- */
+const NW={ek:1,एक:1,do:2,दो:2,teen:3,तीन:3,char:4,चार:4,paanch:5,panch:5,पांच:5,पाँच:5,chhe:6,chah:6,छह:6,छे:6,saat:7,सात:7,aath:8,आठ:8,nau:9,नौ:9,das:10,दस:10,bees:20,बीस:20,tees:30,तीस:30,chalis:40,चालीस:40,pachas:50,पचास:50,saath:60,साठ:60,sattar:70,सत्तर:70,assi:80,अस्सी:80,nabbe:90,नब्बे:90,dedh:1.5,डेढ़:1.5,dhai:2.5,ढाई:2.5,adha:.5,आधा:.5};
+const MUL={sau:100,सौ:100,hazaar:1000,hazar:1000,हजार:1000,हज़ार:1000,lakh:100000,लाख:100000};
+const UNITS={kg:'kg',kilo:'kg',kilogram:'kg',किलो:'kg',केजी:'kg',किग्रा:'kg',peti:'peti',पेटी:'peti',crate:'crate',क्रेट:'crate',dozen:'darjan',darjan:'darjan',दर्जन:'darjan',quintal:'quintal',क्विंटल:'quintal',bora:'bora',bori:'bora',बोरा:'bora',बोरी:'bora',nag:'nag',नग:'nag',piece:'nag',pcs:'nag',पीस:'nag'};
+const STOP=new Set('ko ne se ka ki ke को ने से का की के rs rupaye rupay rupya रुपये रुपए रूपये per prati प्रति hisab हिसाब udhaar udhar उधार उधारी nagad nagd cash नकद नगद becha bech beche बेचा बेचे बेच diya diye दिया दिए de दे gaya गया total kul कुल wapas vapas वापस jama जमा mila mile मिले मिला aaj आज aur और hai है maal माल mein में liye लिए rate रेट bhav भाव pe par पर'.split(' '));
+const MARK=new Set('ko ne se ka ki ke को ने से का की के'.split(' '));
+const isN=x=>/^\d+(\.\d+)?$/.test(x);
+function tokens(s){s=s.toLowerCase().replace(/[०-९]/g,c=>'०१२३४५६७८९'.indexOf(c)).replace(/(\d),(\d)/g,'$1$2').replace(/₹/g,' rs ').replace(/[,!?।]/g,' ').replace(/(\d)([a-z\u0900-\u097F])/g,'$1 $2').replace(/([a-z\u0900-\u097F])(\d)/g,'$1 $2');
+ const t=s.split(/\s+/).filter(Boolean).map(x=>NW[x]!==undefined?String(NW[x]):x),o=[];
+ for(const x of t){if(MUL[x]){const p=o[o.length-1];if(p&&isN(p))o[o.length-1]=String(parseFloat(p)*MUL[x]);else o.push(String(MUL[x]))}else o.push(x)}return o}
+function parse(text){
+ const t=tokens(text),j=' '+t.join(' ')+' ',has=re=>re.test(j);
+ const qi=t.findIndex((x,i)=>isN(x)&&UNITS[t[i+1]]);
+ if(qi<0&&t.some(x=>/^(baaki|baki|बाकी|kitna|kitni|कितना|कितनी|total|टोटल|kul|कुल)$/.test(x)))return{kind:'query',t};
+ const type=qi>=0?'bikri':(has(/ (wapas|vapas|वापस|jama|जमा|vasool|vasooli|वसूल|mile|mila|मिले|मिला|diye|diya|दिए|दिया|paid) /)?'vasooli':null);
+ if(!type)return{kind:'unknown'};
+ const pi=t.findIndex(x=>MARK.has(x)),start=pi>0?pi:1;
+ let party=t.slice(0,start).filter(x=>!isN(x)&&!UNITS[x]&&!STOP.has(x)).join(' ');
+ const k=parties().find(p=>{const l=p.toLowerCase();return l===party||(party.length>1&&l.startsWith(party))});
+ party=k||party.replace(/(^|\s)([a-z])/g,(a,b,c)=>b+c.toUpperCase());
+ const item=t.slice(start).filter(x=>!isN(x)&&!UNITS[x]&&!STOP.has(x)).join(' ');
+ const others=t.map((x,i)=>[x,i]).filter(([x,i])=>isN(x)&&i!==qi).map(([x])=>parseFloat(x));
+ const qty=qi>=0?parseFloat(t[qi]):0,unit=qi>=0?UNITS[t[qi+1]]:'kg';let rate=0,amount=0;
+ if(type==='bikri'){if(has(/ (total|kul|कुल|poore|पूरे|pura|पूरा) /)&&others[0]){amount=others[0];rate=qty?+(amount/qty).toFixed(2):0}else{rate=others[0]||0;amount=+(qty*rate).toFixed(2)}}else amount=others[0]||0;
+ return{kind:'entry',type,party,item,qty,unit,rate,amount,mode:has(/ (nagad|nagd|cash|नकद|नगद) /)?'nagad':'udhaar'}}
+function answer(t){const j=t.join(' ');
+ if(/aaj|आज/.test(j)){const a=E.filter(e=>e.date===iso()),s=ty=>a.filter(e=>e.type===ty).reduce((x,e)=>x+e.amount,0);return `Aaj ki bikri ${money(s('bikri'))}, vasooli ${money(s('vasooli'))}.`}
+ const L=parties(),p=L.find(k=>t.includes(k.toLowerCase()))||L.find(k=>t.some(x=>x.length>2&&(k.toLowerCase().startsWith(x)||x.startsWith(k.toLowerCase()))));
+ if(p){const b=bal(p);return b>0?`${p} ka ${money(b)} baaki hai.`:b<0?`${p} ne ${money(-b)} zyada diye hain.`:`${p} ka kuch baaki nahi.`}
+ if(/sab|सब|kul|कुल|total|टोटल/.test(j))return `Sabka kul baaki ${money(L.reduce((s,p)=>s+Math.max(0,bal(p)),0))}.`;
+ return 'Party ka naam samajh nahi aaya. Naam saaf bolo.'}
+/* ---------- UI ---------- */
+function showAns(a){$('ans').hidden=false;$('ans').textContent=a}
+function handle(){const v=$('say').value.trim();if(!v)return;$('ans').hidden=true;const r=parse(v);
+ if(r.kind==='query'){const a=answer(r.t);showAns(a);say(a);return}
+ if(r.kind!=='entry'){showAns('Samajh nahi aaya. Aise bolo: "Ramesh ko 50 kilo aam 40 rupaye udhaar" ya "Ramesh ne 500 rupaye wapas diye".');return}
+ pending=r;showCard()}
+function showCard(){const p=pending,c=$('card');c.hidden=false;
+ const opt=(a,v,l)=>`<option value="${v}" ${a===v?'selected':''}>${l}</option>`;
+ c.innerHTML=`<b>Check karo, phir Save</b><div style="height:10px"></div>
+<label>Kya hua<select id="ct">${opt(p.type,'bikri','Maal becha')}${opt(p.type,'vasooli','Paise wapas mile')}</select></label>
+<label>Party<input id="cp" list="plist" value="${esc(p.party)}"></label>
+<div id="bk"><label>Maal<input id="ci" value="${esc(p.item)}"></label>
+<div class="row"><label>Matra<input id="cq" type="number" step="any" value="${p.qty||''}"></label><label>Unit<select id="cu">${['kg','peti','crate','darjan','quintal','bora','nag'].map(u=>opt(p.unit,u,u)).join('')}</select></label><label>Rate ₹<input id="cr" type="number" step="any" value="${p.rate||''}"></label></div>
+<label>Kaise<select id="cm">${opt(p.mode,'udhaar','Udhaar')}${opt(p.mode,'nagad','Nagad')}</select></label></div>
+<label>Total ₹<input id="ca" type="number" step="any" value="${p.amount||''}"></label>
+<div class="row"><button id="cs">Save</button><button class="sec" id="cx">Cancel</button></div>`;
+ const tg=()=>$('bk').hidden=$('ct').value!=='bikri',calc=()=>{if($('ct').value==='bikri'){const a=(+$('cq').value)*(+$('cr').value);if(a)$('ca').value=+a.toFixed(2)}};
+ $('ct').onchange=tg;$('cq').oninput=calc;$('cr').oninput=calc;tg();
+ $('cx').onclick=()=>{c.hidden=true;pending=null};
+ $('cs').onclick=()=>{const ty=$('ct').value,party=$('cp').value.trim(),amount=+$('ca').value;
+  if(!party||!(amount>0)){toast('Party aur total bharo');return}
+  E.push({id:Date.now()+''+Math.random().toString(36).slice(2,6),type:ty,party,item:ty==='bikri'?$('ci').value.trim():'',qty:ty==='bikri'?+$('cq').value:0,unit:$('cu').value,rate:ty==='bikri'?+$('cr').value:0,amount,mode:ty==='bikri'?$('cm').value:'',date:iso(),ts:Date.now()});
+  c.hidden=true;pending=null;$('say').value='';save();const b=bal(party);const m=`Save ho gaya. ${party} ka ${money(Math.max(b,0))} baaki hai.`;showAns(m);say(m)}}
+function row(e,showParty){const d=e.type==='bikri'?`${esc(e.item||'maal')} ${e.qty?e.qty+' '+e.unit:''}${e.rate?' @ '+money(e.rate):''} · ${e.mode==='udhaar'?'udhaar':'nagad'}`:'paise wapas mile';
+ return `<div class="it"><div><b>${showParty?esc(e.party)+' · ':''}${e.type==='bikri'?'Bikri':'Vasooli'}</b><div class="mu">${e.date} · ${d}</div></div><div style="text-align:right"><span class="${e.type==='bikri'?'red':'grn'}">${money(e.amount)}</span><button class="x" onclick="del('${e.id}')">×</button></div></div>`}
+window.del=id=>{if(confirm('Ye entry delete karein?')){E=E.filter(e=>e.id!==id);save()}};
+window.tp=p=>{openP=openP===p?null:p;render()};
+function render(){const d=iso();
+ $('sToday').textContent=money(E.filter(e=>e.date===d&&e.type==='bikri').reduce((s,e)=>s+e.amount,0));
+ const L=parties().map(p=>[p,bal(p)]).sort((a,b)=>b[1]-a[1]);
+ $('sBaaki').textContent=money(L.reduce((s,x)=>s+Math.max(0,x[1]),0));
+ $('plist').innerHTML=L.map(x=>`<option value="${esc(x[0])}">`).join('');
+ document.querySelectorAll('[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+ if(tab==='k')$('list').innerHTML=L.length?L.map(([p,b])=>`<div class="it" onclick="tp(this.dataset.p)" data-p="${esc(p)}" style="cursor:pointer"><b>${esc(p)}</b><span class="${b>0?'red':'grn'}">${b>0?money(b)+' baaki':b<0?money(-b)+' advance':'barabar'}</span></div>`+(openP===p?E.filter(e=>e.party===p).sort((a,b)=>b.ts-a.ts).slice(0,30).map(e=>row(e)).join(''):'')).join(''):'<div class="mu">Abhi koi entry nahi. Mic dabakar bolo.</div>';
+ else{const a=E.filter(e=>e.date===d).sort((a,b)=>b.ts-a.ts);$('list').innerHTML=a.length?a.map(e=>row(e,1)).join(''):'<div class="mu">Aaj ki koi entry nahi.</div>'}}
+function save(){localStorage.setItem(KEY,JSON.stringify(E));render()}
+async function listen(){
+ if(isNative()){try{const SR=Capacitor.Plugins.SpeechRecognition;const a=await SR.available();if(!a.available){toast('Voice nahi mila, keyboard ka mic use karo');return}
+  const p=await SR.requestPermissions();if(p.speechRecognition!=='granted'){toast('Mic permission do');return}
+  const r=await SR.start({language:'hi-IN',maxResults:1,popup:true,prompt:'Boliye...'});if(r&&r.matches&&r.matches[0]){$('say').value=r.matches[0];handle()}}catch(e){toast('Voice nahi chala, keyboard ka mic use karo')}return}
+ const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){toast('Keyboard ka mic use karo');return}
+ const rec=new R();rec.lang='hi-IN';rec.onresult=e=>{$('say').value=e.results[0][0].transcript;handle()};rec.onerror=()=>toast('Voice fail hua');rec.start()}
+$('mic').onclick=listen;$('go').onclick=handle;$('say').addEventListener('keydown',e=>{if(e.key==='Enter')handle()});
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
+render();
+</script></body></html>
